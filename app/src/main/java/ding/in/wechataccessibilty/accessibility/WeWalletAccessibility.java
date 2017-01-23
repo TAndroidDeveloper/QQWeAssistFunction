@@ -19,7 +19,7 @@ import ding.in.wechataccessibilty.utils.LogUtils;
 import static android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK;
 
 /**
- * Description：
+ * Description：版本1
  *
  * @author dingdegao
  *         create by 2016/1/17.
@@ -31,7 +31,6 @@ public class WeWalletAccessibility {
     private List<AccessibilityNodeInfo> redWillClick;
     private List<String> havedGetReadWallet;
     private List<String> doubleCheckHash;
-    private final Object lockObject = new Object();
 
     private AccessibilityNodeInfo tempAccessInfo = null;
     private String tempStr = null;
@@ -64,9 +63,9 @@ public class WeWalletAccessibility {
         }
         //提高抢红包的准确度
         String className = event.getClassName().toString();
-//        if (className.equals("com.tencent.mm.ui.LauncherUI") || eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-//            // getLastPacket();
-//        }
+        if (className.equals("com.tencent.mm.ui.LauncherUI") || className.equals("com.tencent.mm.ui.ChattingUI")) {
+            // getLastPacket();
+        }
         if (className.equals("com.tencent.mm.plugin.luckymoney.ui.LuckyMoneyReceiveUI")) {
             //开红包
             LogUtils.i("com.tencent.mm.plugin.luckymoney.ui.LuckyMoneyReceiveUI 打开");
@@ -78,7 +77,9 @@ public class WeWalletAccessibility {
             //抢一下个红包自动会打开，不用退出
             //pressBackButton();
         } else {
-            getLastPacket();
+            if (!hasAction) {
+                getLastPacket();
+            }
         }
 
     }
@@ -96,7 +97,7 @@ public class WeWalletAccessibility {
      * @param event event
      */
     private void notifyWechat(AccessibilityEvent event) {
-        hasAction = true;
+        hasAction = false;
         if (event.getParcelableData() != null && event.getParcelableData() instanceof Notification) {
             Notification notification = (Notification) event.getParcelableData();
             String content = notification.tickerText.toString();
@@ -105,7 +106,7 @@ public class WeWalletAccessibility {
             String[] cc = content.split(":");
 //            String name = cc[0].trim();
 //            String scontent = cc[1].trim();
-            notifyRed=true;
+            notifyRed = true;
             PendingIntent pendingIntent = notification.contentIntent;
             try {
                 pendingIntent.send();
@@ -120,43 +121,46 @@ public class WeWalletAccessibility {
      */
     private void getLastPacket() {
         hasAction = true;
-        synchronized (lockObject) {
-            AccessibilityNodeInfo rootNode = baseAccessibilityService.getRootInActiveWindow();
-            if (rootNode == null) return;
-            redWillClick.clear();
-            findRedPackage(rootNode);
-            if (redWillClick.size() > 0) {
-                if(notifyRed){//如果是通知栏直接去点击最下面的一个
-                    AccessibilityNodeInfo info = redWillClick.get(redWillClick.size() - 1);
-                    haveSameRedMsg(info);
-                    performViewClick(info);
-                    notifyRed = false;
-                    return;
-                }
+        AccessibilityNodeInfo rootNode = baseAccessibilityService.getRootInActiveWindow();
+        if (rootNode == null) {
+            hasAction = false;
+            return;
+        }
+        redWillClick.clear();
+        findRedPackage(rootNode);
+        if (redWillClick.size() > 0) {
+            if (notifyRed) {//如果是通知栏直接去点击最下面的一个
+                AccessibilityNodeInfo info = redWillClick.get(redWillClick.size() - 1);
+                haveSameRedMsg(info);
+                performViewClick(info);
+                notifyRed = false;
+                hasAction = false;
+                return;
+            }
 
-                AccessibilityNodeInfo redInfo = null;
-                //去查找那个需要抢的红包
-                for (int i = redWillClick.size() - 1; i >= 0; i--) {
-                    AccessibilityNodeInfo accessibilityNodeInfo = redWillClick.get(i);
-                    if (!doubleCheckHash.contains(Integer.toHexString(accessibilityNodeInfo.hashCode()))) {
-                        redInfo = accessibilityNodeInfo;
-                        break;
-                    }
+            AccessibilityNodeInfo redInfo = null;
+            //去查找那个需要抢的红包
+            for (int i = redWillClick.size() - 1; i >= 0; i--) {
+                AccessibilityNodeInfo accessibilityNodeInfo = redWillClick.get(i);
+                if (!doubleCheckHash.contains(Integer.toHexString(accessibilityNodeInfo.hashCode()))) {
+                    redInfo = accessibilityNodeInfo;
+                    break;
                 }
+            }
 
-                // 更换策略 每次只去抢一个红包
-                if (redInfo != null) {
-                    if (haveSameRedMsg(redInfo)) {
-                        performViewClick(redInfo);
-                    }
-                }else{
-                    redInfo = redWillClick.get(redWillClick.size() - 1);
-                    if (haveSameRedMsg(redInfo)) {
-                        performViewClick(redInfo);
-                    }
+            // 更换策略 每次只去抢一个红包
+            if (redInfo != null) {
+                if (haveSameRedMsg(redInfo)) {
+                    performViewClick(redInfo);
+                }
+            } else {
+                redInfo = redWillClick.get(redWillClick.size() - 1);
+                if (haveSameRedMsg(redInfo)) {
+                    performViewClick(redInfo);
                 }
             }
         }
+        hasAction = false;
     }
 
 
@@ -189,14 +193,16 @@ public class WeWalletAccessibility {
                 if (thisNodeText != null) time = thisNodeText.toString();
             }
         }
-        String str = stringBuilder.append(time)
+        stringBuilder.append(time)
                 .append("|")
                 .append(sender)
                 .append("|")
                 .append(content)
-                .append("|")
-                .append(Integer.toHexString(info.hashCode()))
-                .toString();
+                .append("|");
+        if (redWillClick.get(0) != null) {
+            stringBuilder.append(Integer.toHexString(redWillClick.get(0).hashCode()));
+        }
+        String str = stringBuilder.toString();
         LogUtils.i("微信红包获取msg:" + str);
         if (!havedGetReadWallet.contains(str)) {
 //            havedGetReadWallet.add(str);
@@ -217,7 +223,7 @@ public class WeWalletAccessibility {
         if (info == null) return;
         List<AccessibilityNodeInfo> nodes;
         Rect bounds = new Rect();
-        String texts[] = new String[]{"查看红包","领取红包"};
+        String texts[] = new String[]{"查看红包", "领取红包"};
         for (String text : texts) {
             nodes = info.findAccessibilityNodeInfosByText(text);
             if (nodes != null && !nodes.isEmpty()) {
@@ -241,6 +247,7 @@ public class WeWalletAccessibility {
      * 对红包进行排序
      */
     private void sortRedWillClickByBotoom() {
+        if (redWillClick.size() == 0) return;
         Collections.sort(redWillClick, new Comparator<AccessibilityNodeInfo>() {
             Rect bounds1 = new Rect();
             Rect bounds2 = new Rect();
